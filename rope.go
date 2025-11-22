@@ -401,3 +401,63 @@ func (node *Node) Slice(startLineNum, startColNum, endLineNum, endColNum int) (*
 	}
 	return leftSlice.Concat(rightSlice), nil
 }
+
+func leaf(text string) *Node {
+	remainingCharCount := 0
+	lineCount := 0
+	for _, r := range text {
+		if r == '\n' {
+			lineCount++
+			remainingCharCount = 0
+		} else {
+			remainingCharCount++
+		}
+	}
+	return &Node{
+		isLeaf:             true,
+		content:            []byte(text),
+		charCount:          len(text),
+		lineCount:          lineCount,
+		remainingCharCount: remainingCharCount,
+	}
+}
+
+func (node *Node) Insert(lineNum, colNum int, text string) (*Node, error) {
+	if lineNum > node.lineCount || (lineNum == node.lineCount && colNum > node.remainingCharCount) || lineNum < 0 || colNum < 0 {
+		return nil, errors.New("Out of Bounds error")
+	}
+	if lineNum == 0 && colNum == 0 {
+		return leaf(text).Concat(node), nil
+	}
+	if lineNum == node.lineCount && colNum == node.remainingCharCount {
+		return node.Concat(leaf(text)), nil
+	}
+
+	leftSplit, rightSplit, err := node.Split(lineNum, colNum)
+	if err != nil {
+		return nil, err
+	}
+	return leftSplit.Concat(leaf(text)).Concat(rightSplit), nil
+}
+
+func (node *Node) Delete(startLineNum, startColNum, endLineNum, endColNum int) (*Node, error) {
+	if startLineNum > node.lineCount || (startLineNum == node.lineCount && startColNum >= node.remainingCharCount) {
+		return nil, errors.New("Out of Bounds error")
+	}
+	if endLineNum > node.lineCount || (endLineNum == node.lineCount && endColNum > node.remainingCharCount) {
+		return nil, errors.New("Out of Bounds error")
+	}
+	if startLineNum > endLineNum || (startLineNum == endLineNum && startColNum >= endColNum) || startLineNum < 0 || startColNum < 0 || endLineNum < 0 || endColNum < 0 {
+		return nil, errors.New("Invalid input")
+	}
+	if startLineNum == endLineNum && startColNum == endColNum {
+		return node, nil
+	}
+
+	leftSplit, rightSplit, err := node.Split(startLineNum, startColNum)
+	if err != nil {
+		return nil, err
+	}
+	_, rightSplitreq, err := rightSplit.Split(endLineNum, endColNum)
+	return leftSplit.Concat(rightSplitreq), nil
+}
