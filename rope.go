@@ -458,6 +458,64 @@ func (node *Node) Delete(startLineNum, startColNum, endLineNum, endColNum int) (
 	if err != nil {
 		return nil, err
 	}
-	_, rightSplitreq, err := rightSplit.Split(endLineNum, endColNum)
+	_, rightSplitreq, _ := rightSplit.Split(endLineNum, endColNum)
 	return leftSplit.Concat(rightSplitreq), nil
+}
+
+func (node *Node) getIterator() (iterator *NodeIter) {
+	iterator = &NodeIter{
+		stack:         []*Node{},
+		buffer:        []rune{},
+		indexOfBuffer: 0,
+	}
+	iterator.push(node)
+	return
+}
+
+type NodeIter struct {
+	stack         []*Node
+	buffer        []rune
+	indexOfBuffer int
+}
+
+func (iter *NodeIter) NextRune() (rune, error) {
+	for iter.indexOfBuffer >= len(iter.buffer) {
+		err := iter.loadNextLeaf()
+		if err != nil {
+			return 'a', err
+		}
+	}
+	if iter.indexOfBuffer < len(iter.buffer) {
+		nextRune := iter.buffer[iter.indexOfBuffer]
+		iter.indexOfBuffer++
+		return nextRune, nil
+	} else {
+		return 'a', errors.New("Index out of bounds")
+	}
+}
+
+func (iter *NodeIter) loadNextLeaf() error {
+	if len(iter.stack) == 0 {
+		return errors.New("Index out of bounds")
+	}
+	for len(iter.stack) != 0 {
+		index := len(iter.stack) - 1
+		element := iter.stack[index]
+		iter.stack = iter.stack[:index]
+		if element.isLeaf {
+			iter.buffer = []rune(string(element.content))
+			iter.indexOfBuffer = 0
+			return nil
+		}
+		iter.push(element.right)
+	}
+	return errors.New("Index out of Bounds")
+}
+
+func (iter *NodeIter) push(node *Node) {
+	if node == nil {
+		return
+	}
+	iter.stack = append(iter.stack, node)
+	iter.push(node.left)
 }
