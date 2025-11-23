@@ -3,26 +3,25 @@ package main
 import (
 	"errors"
 	"strings"
+	"unicode/utf8"
 )
 
 // type Node interface {
-// 	Length() int
-// 	String(builder strings.Builder)
-// 	At(index int) (rune, error)
-// 	Substring(start, end int) (string, error)
+//Y 	String(builder strings.Builder)
+//Y 	At(index int) (rune, error)
+//Y 	Substring(start, end int) (string, error)
 
-// 	Split(index int) (Node, Node, error)
-// 	Concat(other Node) Node
-// 	Slice(start, end int) (*Rope, error)
-//  leaf(text string) *Node
+//Y 	Split(index int) (Node, Node, error)
+//Y 	Concat(other Node) Node
+//Y 	Slice(start, end int) (*Rope, error)
+//Y  leaf(text string) *Node
 
-// 	Insert(index int, text string) error
-// 	Delete(start, end int) error
-// 	Replace(start, end int, text string) error
+//Y 	Insert(index int, text string) error
+//Y 	Delete(start, end int) error
+//N 	Replace(start, end int, text string) error
 
-// 	Find(search string, start int) int
-// 	FindAll(search string) []int
-// 	LineCount() int
+//N 	Find(search string, start int) int
+//Y  	FindAll(search string) []int
 // 	LineStart(lineNum int) int
 // 	LineEnd(lineNum int) int
 
@@ -32,9 +31,9 @@ import (
 
 type Node struct {
 	isLeaf             bool
-	charCount          int
-	lineCount          int
-	remainingCharCount int
+	charCount          int //this denotes the number of characters present in the node
+	lineCount          int //this denotes the number of completed lines that is , the number of \n's present
+	remainingCharCount int //this denotes the number of charcaters present after the last occurance of \n
 	content            []byte
 	left, right        *Node
 }
@@ -77,7 +76,11 @@ func (node *Node) At(lineNumber, colNumber int) (rune, error) {
 	if lineNumber < node.left.lineCount || (lineNumber == node.left.lineCount && colNumber < node.left.remainingCharCount) {
 		return node.left.At(lineNumber, colNumber)
 	}
-	return node.right.At(lineNumber-node.left.lineCount, colNumber-node.left.remainingCharCount)
+	colNumberEq := colNumber
+	if lineNumber == node.left.lineCount {
+		colNumberEq = colNumberEq - node.left.remainingCharCount
+	}
+	return node.right.At(lineNumber-node.left.lineCount, colNumberEq)
 }
 
 // inclusive of start, exclusive of end
@@ -187,71 +190,33 @@ func (node *Node) Split(lineNum, colNum int) (*Node, *Node, error) {
 	}
 
 	if node.isLeaf {
-		content := node.content
-		runes := []rune(string(content))
-
-		// Convert (lineNum, colNum) to rune index
-		i := 0
+		runes := []rune(string(node.content))
+		splitIndex := 0
 		currentLine := 0
-		for currentLine < lineNum && i < len(runes) {
-			if runes[i] == '\n' {
+		currentCol := 0
+
+		// Iterate rune by rune to find the split point
+		for splitIndex < len(runes) {
+			if currentLine == lineNum && currentCol == colNum {
+				break
+			}
+			if runes[splitIndex] == '\n' {
 				currentLine++
-			}
-			i++
-		}
-		// Now i points to the start of lineNum, add colNum to get the split point
-		splitIndex := i + colNum
-		if splitIndex > len(runes) {
-			return nil, nil, errors.New("Out of Bounds error")
-		}
-
-		leftContent := runes[:splitIndex]
-		rightContent := runes[splitIndex:]
-
-		// Compute metadata for left node
-		leftLineCount := 0
-		leftRemainingCharCount := 0
-		for _, r := range leftContent {
-			if r == '\n' {
-				leftLineCount++
-				leftRemainingCharCount = 0
+				currentCol = 0
 			} else {
-				leftRemainingCharCount++
+				currentCol++
 			}
-		}
-		if len(leftContent) > 0 && leftContent[len(leftContent)-1] != '\n' {
-			leftLineCount++ // Count the incomplete last line
+			splitIndex++
 		}
 
-		// Compute metadata for right node
-		rightLineCount := 0
-		rightRemainingCharCount := 0
-		for _, r := range rightContent {
-			if r == '\n' {
-				rightLineCount++
-				rightRemainingCharCount = 0
-			} else {
-				rightRemainingCharCount++
-			}
+		if splitIndex >= len(runes) {
+			return nil, nil, errors.New("Index out of bounds")
 		}
-		if len(rightContent) > 0 && rightContent[len(rightContent)-1] != '\n' {
-			rightLineCount++ // Count the incomplete last line
-		}
+		leftContentString := string(runes[:splitIndex])
+		rightContentString := string(runes[splitIndex:])
 
-		leftNode := &Node{
-			isLeaf:             true,
-			content:            []byte(string(leftContent)),
-			charCount:          len(leftContent),
-			lineCount:          leftLineCount,
-			remainingCharCount: leftRemainingCharCount,
-		}
-		rightNode := &Node{
-			isLeaf:             true,
-			content:            []byte(string(rightContent)),
-			charCount:          len(rightContent),
-			lineCount:          rightLineCount,
-			remainingCharCount: rightRemainingCharCount,
-		}
+		leftNode := leaf(leftContentString)   // Reuse the 'leaf' constructor
+		rightNode := leaf(rightContentString) // It correctly calculates all metadata
 
 		return leftNode, rightNode, nil
 	}
@@ -318,6 +283,7 @@ func (node *Node) Concat(other *Node) *Node {
 	}
 }
 
+// inclusive of start and exclusive of end
 func (node *Node) Slice(startLineNum, startColNum, endLineNum, endColNum int) (*Node, error) {
 	if startLineNum > node.lineCount || (startLineNum == node.lineCount && startColNum >= node.remainingCharCount) {
 		return nil, errors.New("Out of Bounds error")
@@ -367,13 +333,7 @@ func (node *Node) Slice(startLineNum, startColNum, endLineNum, endColNum int) (*
 			}
 			i++
 		}
-		return &Node{
-			isLeaf:             true,
-			content:            []byte(string(runes[startIndex:endIndex])),
-			charCount:          endIndex - startIndex,
-			lineCount:          0,
-			remainingCharCount: 0,
-		}, nil
+		return leaf(string(runes[startIndex:endIndex])), nil
 	}
 
 	if endLineNum < node.left.lineCount || (endLineNum == node.left.lineCount && endColNum <= node.left.remainingCharCount) {
@@ -416,12 +376,13 @@ func leaf(text string) *Node {
 	return &Node{
 		isLeaf:             true,
 		content:            []byte(text),
-		charCount:          len(text),
+		charCount:          utf8.RuneCountInString(text),
 		lineCount:          lineCount,
 		remainingCharCount: remainingCharCount,
 	}
 }
 
+// inserts at given position, the first char of text will be placed at lineNum, colNum
 func (node *Node) Insert(lineNum, colNum int, text string) (*Node, error) {
 	if lineNum > node.lineCount || (lineNum == node.lineCount && colNum > node.remainingCharCount) || lineNum < 0 || colNum < 0 {
 		return nil, errors.New("Out of Bounds error")
@@ -440,6 +401,7 @@ func (node *Node) Insert(lineNum, colNum int, text string) (*Node, error) {
 	return leftSplit.Concat(leaf(text)).Concat(rightSplit), nil
 }
 
+// inclusive of start and exclusive of end
 func (node *Node) Delete(startLineNum, startColNum, endLineNum, endColNum int) (*Node, error) {
 	if startLineNum > node.lineCount || (startLineNum == node.lineCount && startColNum >= node.remainingCharCount) {
 		return nil, errors.New("Out of Bounds error")
@@ -458,7 +420,11 @@ func (node *Node) Delete(startLineNum, startColNum, endLineNum, endColNum int) (
 	if err != nil {
 		return nil, err
 	}
-	_, rightSplitreq, _ := rightSplit.Split(endLineNum, endColNum)
+	endColNumEq := endColNum
+	if endLineNum == leftSplit.lineCount {
+		endColNumEq = endColNumEq - leftSplit.remainingCharCount
+	}
+	_, rightSplitreq, _ := rightSplit.Split(endLineNum-leftSplit.lineCount, endColNumEq)
 	return leftSplit.Concat(rightSplitreq), nil
 }
 
@@ -470,6 +436,56 @@ func (node *Node) getIterator() (iterator *NodeIter) {
 	}
 	iterator.push(node)
 	return
+}
+
+// finds all the positions that matches the string
+func (node *Node) FindAll(search string) []Position {
+	positions := []Position{}
+	if len(search) == 0 {
+		return positions
+	}
+	searchPattern := []rune(search)
+	curPattern := []rune{}
+	iterator := node.getIterator()
+	curPositionMatches := false
+	for i := 0; i < len(searchPattern); i++ {
+		nextRune, err := iterator.NextRune()
+		if err != nil {
+			return positions
+		}
+		curPattern = append(curPattern, nextRune)
+	}
+	currentPosition := Position{Line: 0, Column: 0}
+	for true {
+		curPositionMatches = true
+		for i := 0; i < len(searchPattern); i++ {
+			if curPattern[i] != searchPattern[i] {
+				curPositionMatches = false
+				break
+			}
+		}
+		if curPositionMatches {
+			positions = append(positions, currentPosition)
+		}
+		if curPattern[0] == '\n' {
+			currentPosition.Line++
+			currentPosition.Column = 0
+		} else {
+			currentPosition.Column++
+		}
+		curPattern = curPattern[1:]
+		nextRune, err := iterator.NextRune()
+		if err != nil {
+			return positions
+		}
+		curPattern = append(curPattern, nextRune)
+	}
+	return positions
+}
+
+type Position struct {
+	Line   int
+	Column int
 }
 
 type NodeIter struct {
